@@ -16,7 +16,7 @@ import random
 from tensorboardX import SummaryWriter
 
 from model.deeplab_multi import DeeplabMulti
-from model.discriminator import FCDiscriminator
+from model.discriminator import FCDiscriminator, ImgFGDiscriminator
 from utils.loss import CrossEntropy2d
 from dataset.gta5_dataset import GTA5DataSet
 from dataset.cityscapes_dataset import cityscapesDataSet
@@ -223,7 +223,8 @@ def main():
 
     # init D
     model_D1 = FCDiscriminator(num_classes=args.num_classes).to(device)
-    model_D2 = FCDiscriminator(num_classes=args.num_classes).to(device)
+    # model_D2 = FCDiscriminator(num_classes=args.num_classes).to(device)
+    model_D2 = ImgFGDiscriminator(num_classes=args.num_classes).to(device)
 
     model_D1.train()
     model_D1.to(device)
@@ -347,13 +348,13 @@ def main():
             pred_target2 = interp_target(pred_target2)
 
             D_out1 = model_D1(F.softmax(pred_target1))
-            D_out2 = model_D2(F.softmax(pred_target2))
+            D_out2, D_out_mode = model_D2(F.softmax(pred_target2))
 
             # print(f'D_out1.data.size():{D_out1.data.size()}')
 
             loss_adv_target1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(source_label).to(device))
-
             loss_adv_target2 = bce_loss(D_out2, torch.FloatTensor(D_out2.data.size()).fill_(source_label).to(device))
+
 
             loss = args.lambda_adv_target1 * loss_adv_target1 + args.lambda_adv_target2 * loss_adv_target2
             loss = loss / args.iter_size
@@ -375,11 +376,14 @@ def main():
             pred2 = pred2.detach()
 
             D_out1 = model_D1(F.softmax(pred1))
-            D_out2 = model_D2(F.softmax(pred2))
-
+            D_out2, D_out_mode = model_D2(F.softmax(pred2))
+            
             loss_D1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(source_label).to(device))
 
+            ########### S
             loss_D2 = bce_loss(D_out2, torch.FloatTensor(D_out2.data.size()).fill_(source_label).to(device))
+
+            ########### E
 
             loss_D1 = loss_D1 / args.iter_size / 2
             loss_D2 = loss_D2 / args.iter_size / 2
@@ -395,11 +399,14 @@ def main():
             pred_target2 = pred_target2.detach()
 
             D_out1 = model_D1(F.softmax(pred_target1))
-            D_out2 = model_D2(F.softmax(pred_target2))
+            D_out2, D_out_mode = model_D2(F.softmax(pred_target2))
 
             loss_D1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(target_label).to(device))
 
+            ########### S
             loss_D2 = bce_loss(D_out2, torch.FloatTensor(D_out2.data.size()).fill_(target_label).to(device))
+
+            ########### E
 
             loss_D1 = loss_D1 / args.iter_size / 2
             loss_D2 = loss_D2 / args.iter_size / 2

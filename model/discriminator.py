@@ -51,7 +51,8 @@ class ImgFGDiscriminator(nn.Module):
 
 		self.cls2 = nn.Sequential(
 			nn.AdaptiveAvgPool2d((10, 10)),
-			nn.Linear((ndf*8) * 10 * 10, num_modes)
+			nn.Flatten(),
+			nn.Linear(ndf*8 * 10 * 10, num_modes)
 		)
 
 		#self.up_sample = nn.Upsample(scale_factor=32, mode='bilinear')
