@@ -21,6 +21,10 @@ from utils.loss import CrossEntropy2d
 from dataset.gta5_dataset import GTA5DataSet
 from dataset.cityscapes_dataset import cityscapesDataSet
 
+# for SLM centers calculation
+from tqdm import tqdm
+from utils.kmeans import kmeans_cluster
+
 IMG_MEAN = np.array((104.00698793, 116.66876762, 122.67891434), dtype=np.float32)
 
 MODEL = 'DeepLab'
@@ -145,6 +149,26 @@ def get_arguments():
 args = get_arguments()
 
 
+
+
+
+def his_kl_simi_each(p1, p2):
+    n, c1, hw1 = p1.shape
+    c2, hw2 = p2.shape
+    if hw2 != hw1:
+        p2 = p2.unsqueeze(dim=0)
+        p2 = F.interpolate(p2, size=hw1, mode='linear')
+
+    p2 = p2.squeeze()
+    log_p1 = torch.log(p1 + 1e-30)
+    log_p2 = torch.log(p2 + 1e-30)
+
+    kl = p1 * (log_p1 - log_p2)
+    # kl = kl.sum(dim=2)
+    # kl = kl.mean()
+    return kl
+
+
 def lr_poly(base_lr, iter, max_iter, power):
     return base_lr * ((1 - float(iter) / max_iter) ** (power))
 
@@ -168,6 +192,8 @@ def main():
 
     device = torch.device("cuda" if not args.cpu else "cpu")
 
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
     w, h = map(int, args.input_size.split(','))
     input_size = (w, h)
 
@@ -175,24 +201,6 @@ def main():
     input_size_target = (w, h)
 
     cudnn.enabled = True
-
-    # # Create network
-    # if args.model == 'DeepLab':
-    #     model = DeeplabMulti(num_classes=args.num_classes)
-    #     if args.restore_from[:4] == 'http' :
-    #         saved_state_dict = model_zoo.load_url(args.restore_from)
-    #     else:
-    #         saved_state_dict = torch.load(args.restore_from)
-    #
-    #     new_params = model.state_dict().copy()
-    #     for i in saved_state_dict:
-    #         # Scale.layer5.conv2d_list.3.weight
-    #         i_parts = i.split('.')
-    #         # print i_parts
-    #         if not args.num_classes == 19 or not i_parts[1] == 'layer5':
-    #             new_params['.'.join(i_parts[1:])] = saved_state_dict[i]
-    #             # print i_parts
-    #     model.load_state_dict(new_params)
 
     if args.model == 'DeepLab':
         model = DeeplabMulti(num_classes=args.num_classes)
@@ -279,6 +287,15 @@ def main():
     source_label = 0
     target_label = 1
 
+    # TODO: SOURCE SLM CALCULATION AND K-MEANS GETTING CENTERS
+    # src_his_h, src_his_w = get_source_slm(trainloader)
+    # src_his_h = torch.stack(list(src_his_h.values()))
+    # src_his_w = torch.stack(list(src_his_w.values()))
+    # src_his_h = k_means(src_his_h)
+    # src_his_w = k_means(src_his_w)
+    src_his_h = torch.load('src_his_h.pt')
+    src_his_w = torch.load('src_his_h.pt')
+
     # set up tensor board
     if args.tensorboard:
         if not os.path.exists(args.log_dir):
@@ -352,6 +369,26 @@ def main():
 
             # print(f'D_out1.data.size():{D_out1.data.size()}')
 
+            # TODO: PRED. MAP CALCULATING WITH SLM CENTERS
+            pred = F.softmax(pred_target2)
+            pred = pred.detach()
+            # label = pred.argmax(dim=1).squeeze()
+            # h, w = label.shape
+            pred = pred.squeeze()
+            cu_h = pred.sum(dim=2)
+            cu_w = pred.sum(dim=1)
+            cu_h = cu_h.t()
+            cu_w = cu_w.t()
+            cu_h = F.normalize(cu_h, p=1, dim=0)
+            cu_w = F.normalize(cu_w, p=1, dim=0)
+
+            cu_h = cu_h.t()
+            cu_w = cu_w.t()
+            score1 = his_kl_simi_each(src_his_h, cu_h)
+            score2 = his_kl_simi_each(src_his_w, cu_w)
+
+
+
             loss_adv_target1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(source_label).to(device))
             loss_adv_target2 = bce_loss(D_out2, torch.FloatTensor(D_out2.data.size()).fill_(source_label).to(device))
 
@@ -375,9 +412,11 @@ def main():
             pred1 = pred1.detach()
             pred2 = pred2.detach()
 
+            # TODO: PRED. MAP CALCULATING WITH SLM CENTERS
+
             D_out1 = model_D1(F.softmax(pred1))
             D_out2, D_out_mode = model_D2(F.softmax(pred2))
-            
+
             loss_D1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(source_label).to(device))
 
             ########### S
@@ -397,6 +436,8 @@ def main():
             # train with target
             pred_target1 = pred_target1.detach()
             pred_target2 = pred_target2.detach()
+
+            # TODO: PRED. MAP CALCULATING WITH SLM CENTERS
 
             D_out1 = model_D1(F.softmax(pred_target1))
             D_out2, D_out_mode = model_D2(F.softmax(pred_target2))
