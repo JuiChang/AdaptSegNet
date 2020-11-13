@@ -25,6 +25,8 @@ from dataset.cityscapes_dataset import cityscapesDataSet
 from tqdm import tqdm
 from utils.kmeans import kmeans_cluster
 
+import time
+
 IMG_MEAN = np.array((104.00698793, 116.66876762, 122.67891434), dtype=np.float32)
 
 MODEL = 'DeepLab'
@@ -148,15 +150,16 @@ args = get_arguments()
 
 
 def get_source_slm(src_loader, src_resize=False):
-    src_his_h = {}
-    src_his_w = {}
+    # src_his_h = {}
+    # src_his_w = {}
+    src_slm = {}
 
     print("len(src_loader): ", len(src_loader))
 
     for index, batch in tqdm(enumerate(src_loader)):
-        # (test)
-        if index == 100:
-            break
+        # # (test)
+        # if index == 1000:
+        #     break
 
         _, label, _, name = batch
         name = name[0]
@@ -174,29 +177,35 @@ def get_source_slm(src_loader, src_resize=False):
         cu_h = F.normalize(cu_h, p=1, dim=0)
         cu_w = F.normalize(cu_w, p=1, dim=0)
 
-        # cu_h = cu_h.t()
-        # cu_w = cu_w.t()
+        cu_h = cu_h.t()
+        cu_w = cu_w.t()
 
-        src_his_h[name] = cu_h
-        src_his_w[name] = cu_w
+        # src_his_h[name] = cu_h
+        # src_his_w[name] = cu_w
+        src_slm[name] = torch.cat((cu_h, cu_w), dim=1)
 
-    return src_his_h, src_his_w
+    # return src_his_h, src_his_w
+    return src_slm
 
 
 def k_means(hist):
     result = []
-    n, hw, c = hist.shape
-    hists = torch.chunk(hist, c, dim=2)
+    n, _, _ = hist.shape
+    # hists = torch.chunk(hist, c, dim=2)
+    #
+    # for class_id, hist in enumerate(hists):
+    #     print(f'K means clustering, class {class_id}')
+    #     hist = hist.squeeze()
+    #     centers, codes = kmeans_cluster(hist, 10)
+    #     result.append(centers)
+    #     # print(centers.shape)
+    # result = torch.stack(result)
 
-    for class_id, hist in enumerate(hists):
-        print(f'K means clustering, class {class_id}')
-        hist = hist.squeeze()
-        centers, codes = kmeans_cluster(hist, 10)
-        result.append(centers)
-        # print(centers.shape)
-    result = torch.stack(result)
-    result = result.permute(1, 0, 2)
-    return result
+    hist = hist.view(n, -1)
+    centers, codes = kmeans_cluster(hist, 10)
+
+    # result = result.permute(1, 0, 2)
+    return centers, codes
 
 
 def main():
@@ -253,13 +262,26 @@ def main():
     trainloader_iter = enumerate(trainloader)
 
     # TODO: SOURCE SLM CALCULATION AND K-MEANS GETTING CENTERS
-    src_his_h, src_his_w = get_source_slm(trainloader)
-    src_his_h = torch.stack(list(src_his_h.values()))
-    src_his_w = torch.stack(list(src_his_w.values()))
-    src_his_h = k_means(src_his_h)
-    src_his_w = k_means(src_his_w)
-    torch.save(src_his_h, 'src_his_h.pt')
-    torch.save(src_his_w, 'src_his_w.pt')
+    # src_his_h, src_his_w = get_source_slm(trainloader)
+    # src_his_h = torch.stack(list(src_his_h.values()))
+    # src_his_w = torch.stack(list(src_his_w.values()))
+    # src_his_h = k_means(src_his_h)
+    # src_his_w = k_means(src_his_w)
+    # torch.save(src_his_h, 'src_his_h.pt')
+    # torch.save(src_his_w, 'src_his_w.pt')
+
+    src_slm = get_source_slm(trainloader)
+    names = src_slm.keys()
+
+    src_slm = torch.stack(list(src_slm.values()))
+    start = time.time()
+    src_slm_centers, src_slm_codes = k_means(src_slm)
+    end = time.time()
+    print("k means time elapsed:", end - start)
+
+    torch.save(src_slm_centers, 'src_slm_centers.pt')
+    src_slm_codes = dict(zip(names, src_slm_codes))
+    torch.save(src_slm_codes, 'src_slm_codes.pt')
 
 
 if __name__ == '__main__':

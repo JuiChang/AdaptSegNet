@@ -165,6 +165,7 @@ def his_kl_simi_each(p1, p2):
 
     kl = p1 * (log_p1 - log_p2)
     # kl = kl.sum(dim=2)
+    kl = kl.sum(dim=(1, 2))
     # kl = kl.mean()
     return kl
 
@@ -288,13 +289,15 @@ def main():
     target_label = 1
 
     # TODO: SOURCE SLM CALCULATION AND K-MEANS GETTING CENTERS
-    # src_his_h, src_his_w = get_source_slm(trainloader)
-    # src_his_h = torch.stack(list(src_his_h.values()))
-    # src_his_w = torch.stack(list(src_his_w.values()))
-    # src_his_h = k_means(src_his_h)
-    # src_his_w = k_means(src_his_w)
-    src_his_h = torch.load('src_his_h.pt')
-    src_his_w = torch.load('src_his_h.pt')
+    # src_his_h = torch.load('src_his_h.pt')
+    # src_his_w = torch.load('src_his_h.pt')
+    src_slm_centers = torch.load('src_slm_centers.pt')
+    n, _ = src_slm_centers.shape
+    _, h = input_size
+    src_slm_centers = src_slm_centers.view(n, args.num_classes, -1)
+    src_his_h = src_slm_centers[:, :, :h]
+    src_his_w = src_slm_centers[:, :, h:]
+    src_slm_codes = torch.load('src_slm_codes.pt')
 
     # set up tensor board
     if args.tensorboard:
@@ -336,9 +339,12 @@ def main():
 
             _, batch = trainloader_iter.__next__()
 
-            images, labels, _, _ = batch
+            images, labels, _, name = batch
             images = images.to(device)
             labels = labels.long().to(device)
+
+            # get slm code of the source image
+            src_slm_id = src_slm_codes[name]
 
             pred1, pred2 = model(images)
             pred1 = interp(pred1)
@@ -384,9 +390,14 @@ def main():
 
             cu_h = cu_h.t()
             cu_w = cu_w.t()
-            score1 = his_kl_simi_each(src_his_h, cu_h)
-            score2 = his_kl_simi_each(src_his_w, cu_w)
+            # slm = torch.cat((cu_h, cu_w), dim=0)
 
+            score_h_each = his_kl_simi_each(src_his_h, cu_h)
+            score_w_each = his_kl_simi_each(src_his_w, cu_w)
+
+            # YET
+            # sup_mode = F.softmax(score_h_each + score_h_each)
+            # loss_fine_grain = bce_loss(D_out_mode, sup_mode.to(device))
 
 
             loss_adv_target1 = bce_loss(D_out1, torch.FloatTensor(D_out1.data.size()).fill_(source_label).to(device))
